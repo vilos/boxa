@@ -22,7 +22,7 @@ trap 'printf "\033[1;31m==> ERROR: Script failed at line %s (exit code %s)\033[0
 # canonical source of truth once the checkout exists is lib/brand.sh
 # (CLI_NAME, BRAND_REPO_SLUG, …); keep these in lockstep with it.
 CLI_NAME="boxa"
-BOXA_REPO_SLUG="IVIJL/${CLI_NAME}"
+BOXA_REPO_SLUG="vilos/${CLI_NAME}"
 BOXA_REPO="https://github.com/${BOXA_REPO_SLUG}.git"
 BOXA_DIR="${HOME}/.local/share/${CLI_NAME}"
 SYMLINK_PATH="/usr/local/bin/${CLI_NAME}"

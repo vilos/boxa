@@ -9,7 +9,7 @@
 
 BOXA_MEM_DOCKER_CMD="${BOXA_MEM_DOCKER_CMD:-docker}"
 BOXA_OOM_ARCHIVE_DIR="${BOXA_OOM_ARCHIVE_DIR:-/var/log/boxa/oom}"
-BOXA_MEMORY_DOCS_URL="${BOXA_MEMORY_DOCS_URL:-https://github.com/IVIJL/boxa/blob/main/docs/memory.md}"
+BOXA_MEMORY_DOCS_URL="${BOXA_MEMORY_DOCS_URL:-https://github.com/vilos/boxa/blob/main/docs/memory.md}"
 
 _BOXA_MEM_PROJECT=
 _BOXA_MEM_CONTAINER=

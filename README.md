@@ -52,13 +52,13 @@ with the box.
 # 1. Install (downloads git/Docker/keychain, configures SSH agent, clones,
 #    installs the `boxa` command). Review it first:
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/IVIJL/boxa/main/install.sh -o install.sh
+  https://raw.githubusercontent.com/vilos/boxa/main/install.sh -o install.sh
 less install.sh
 bash install.sh
 
 # …or the non-interactive one-liner:
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/IVIJL/boxa/main/install.sh | bash -s -- --yes
+  https://raw.githubusercontent.com/vilos/boxa/main/install.sh | bash -s -- --yes
 
 # 2. Build the image once (from the Dockerfile you just reviewed — local-first,
 #    no registry pull). Reused across every project afterwards:

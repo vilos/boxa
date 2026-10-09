@@ -1093,7 +1093,7 @@ _boxa::self_heal_resolver_drop_in() {
 # Image guard: the resolver reuses the boxa image (dnsmasq is already
 # baked in per ADR 0001). On a clean checkout without `boxa build`, the
 # image is absent; we degrade with a visible WARNING rather than letting
-# `docker run` implicit-pull an unrelated `ivijl/boxa:latest` from a
+# `docker run` implicit-pull an unrelated `vilos/boxa:latest` from a
 # registry. The user's own container creation later in this script still
 # fails-loud at its own image-inspect guard.
 _boxa::bootstrap_dns_resolver() {

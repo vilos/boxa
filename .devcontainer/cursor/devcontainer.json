@@ -1,6 +1,6 @@
 {
   "name": "Boxa (Cursor)",
-  "image": "ivijl/boxa:latest",
+  "image": "vilos/boxa:latest",
   "runArgs": [
     "--user", "0",
     "--security-opt", "seccomp=unconfined",

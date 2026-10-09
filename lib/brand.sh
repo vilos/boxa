@@ -46,8 +46,8 @@ CLI_NAME_UPPER="$(printf '%s' "$CLI_NAME" | tr '[:lower:]' '[:upper:]')"
 # --- Image ------------------------------------------------------------------
 # The image is built locally (no registry — local-first is a design goal) and
 # tagged under a namespace kept as its own constant, so it can move
-# independently of the CLI name. Aligned to the repo owner: `ivijl/boxa:latest`.
-BRAND_IMAGE_NAMESPACE="ivijl"
+# independently of the CLI name. Aligned to the repo owner: `vilos/boxa:latest`.
+BRAND_IMAGE_NAMESPACE="vilos"
 BRAND_IMAGE_TAG="latest"
 BRAND_IMAGE="${BRAND_IMAGE_NAMESPACE}/${CLI_NAME}:${BRAND_IMAGE_TAG}"
 
@@ -80,7 +80,7 @@ BRAND_BRIDGE_GROUP="${CLI_NAME}-bridge"  # shared bridge group
 # GitHub owner/repo slug. install.sh needs this BEFORE the repo is cloned, so
 # it cannot source this file for the bootstrap clone; it carries its own copy
 # and is expected to match BRAND_REPO_SLUG once the checkout exists.
-BRAND_REPO_OWNER="IVIJL"
+BRAND_REPO_OWNER="vilos"
 BRAND_REPO_SLUG="${BRAND_REPO_OWNER}/${CLI_NAME}"
 BRAND_REPO_URL="https://github.com/${BRAND_REPO_SLUG}.git"
 
