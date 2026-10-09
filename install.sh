@@ -139,11 +139,19 @@ detect_os() {
     case "$(uname -s)" in
         Darwin)
             OS="macos"
-            PM="brew"
-            if ! has brew; then
-                error "Homebrew is required on macOS. Install from https://brew.sh"
+            # Prefer Homebrew when both are present — it was boxa's only
+            # supported macOS package manager before MacPorts support, so
+            # existing brew installs keep their current behavior unchanged.
+            # See ADR 0039 for the MacPorts-support rationale.
+            if has brew; then
+                PM="brew"
+                msg "macOS detected (Homebrew)"
+            elif has port; then
+                PM="macports"
+                msg "macOS detected (MacPorts)"
+            else
+                error "Homebrew or MacPorts is required on macOS. Install Homebrew from https://brew.sh or MacPorts from https://www.macports.org/install.php"
             fi
-            msg "macOS detected (Homebrew)"
             return
             ;;
         Linux) ;;
@@ -179,23 +187,30 @@ detect_os() {
 pkg_install() {
     local pkg="$1"
     case "$PM" in
-        brew)    brew install "$pkg" ;;
-        apt-get) sudo apt-get install -y "$pkg" ;;
-        dnf)     sudo dnf install -y "$pkg" ;;
-        pacman)  sudo pacman -S --noconfirm "$pkg" ;;
-        zypper)  sudo zypper install -y "$pkg" ;;
-        apk)     sudo apk add "$pkg" ;;
+        brew)     brew install "$pkg" ;;
+        # MacPorts installs to /opt/local and needs sudo, unlike brew.
+        # Package names are assumed to match the brew formula name passed
+        # in; this holds for every package install.sh currently routes
+        # through here (git, keychain) but may need a per-package override
+        # if a future caller's MacPorts port name diverges.
+        macports) sudo port install "$pkg" ;;
+        apt-get)  sudo apt-get install -y "$pkg" ;;
+        dnf)      sudo dnf install -y "$pkg" ;;
+        pacman)   sudo pacman -S --noconfirm "$pkg" ;;
+        zypper)   sudo zypper install -y "$pkg" ;;
+        apk)      sudo apk add "$pkg" ;;
     esac
 }
 
 pkg_update() {
     case "$PM" in
-        apt-get) sudo apt-get update ;;
-        dnf)     ;; # dnf auto-refreshes
-        pacman)  ;; # pacman -Sy without -u is unsafe; pacman -S handles it
-        zypper)  sudo zypper refresh ;;
-        apk)     sudo apk update ;;
-        brew)    brew update ;;
+        apt-get)  sudo apt-get update ;;
+        dnf)      ;; # dnf auto-refreshes
+        pacman)   ;; # pacman -Sy without -u is unsafe; pacman -S handles it
+        zypper)   sudo zypper refresh ;;
+        apk)      sudo apk update ;;
+        brew)     brew update ;;
+        macports) sudo port selfupdate ;;
     esac
 }
 
@@ -336,7 +351,15 @@ check_docker() {
         msg "Install Docker via one of:"
         msg "  - Docker Desktop: https://www.docker.com/products/docker-desktop/"
         msg "  - OrbStack:       https://orbstack.dev"
-        msg "  - Colima:         brew install colima docker docker-compose"
+        if [ "$PM" = "brew" ]; then
+            msg "  - Colima:         brew install colima docker docker-compose"
+        else
+            # Colima ships via a Homebrew tap, not MacPorts — no port exists
+            # to suggest here. Docker Desktop / OrbStack above need neither
+            # package manager, so they stay the path of least friction on a
+            # MacPorts-only machine.
+            msg "  - Colima:         https://github.com/abiosoft/colima (needs Homebrew; installable alongside MacPorts)"
+        fi
         SKIPPED+=("Docker (not installed)")
         return
     fi
@@ -1051,20 +1074,33 @@ setup_completions() {
 # and print the exact snippet to paste (with the absolute inject-script path
 # filled in). Full guide: docs/clipboard-images.md.
 
-# macOS clipboard keybind automation. Split out of setup_clipboard_keybind
-# because it does real work (brew installs, init.lua edit, permission
-# prompts) rather than printing a snippet. Darwin-only — never reached on
-# Linux/WSL2. Idempotent: re-running skips present brew packages and
-# replaces (not duplicates) the managed Hammerspoon block.
+# macOS clipboard keybind automation, dispatched by package manager
+# (ADR 0039 — MacPorts support, and a package-manager-specific clipboard tool):
+#   brew     → Hammerspoon (full accessibility-state introspection via its
+#              own hs IPC) — this was boxa's only macOS path before MacPorts
+#              support, so brew installs keep their exact prior behavior.
+#   macports → skhd (Hammerspoon ships only as a Homebrew cask — no MacPorts
+#              port exists for it — so MacPorts gets a different tool).
+# Both paths install real tooling, edit a managed config block, and trigger
+# the GUI permission prompts macOS won't grant programmatically. Darwin-only
+# — never reached on Linux/WSL2.
 setup_clipboard_keybind_macos() {
+    case "$PM" in
+        brew)     setup_clipboard_keybind_macos_hammerspoon ;;
+        macports) setup_clipboard_keybind_macos_skhd ;;
+        *)
+            warn "Clipboard keybind needs Homebrew or MacPorts on macOS; neither was detected."
+            SKIPPED+=("clipboard keybind (macOS — no supported package manager)")
+            ;;
+    esac
+}
+
+# Homebrew path: Hammerspoon, a full Lua automation framework. Idempotent:
+# re-running skips present brew packages and replaces (not duplicates) the
+# managed Hammerspoon block.
+setup_clipboard_keybind_macos_hammerspoon() {
     # macOS forbids granting these programmatically — the user clicks once
     # in GUI. We trigger the prompts; the rest is automatic.
-    if ! has brew; then
-        msg "Homebrew not in PATH — install it (https://brew.sh), then re-run install.sh."
-        msg "It will set up: hammerspoon (cask), terminal-notifier, pngpaste."
-        SKIPPED+=("clipboard keybind (macOS — Homebrew missing)")
-        return
-    fi
 
     # (a) Install the tools idempotently. hammerspoon ships the global
     #     hotkey + keystroke injection; terminal-notifier gives clickable
@@ -1228,15 +1264,151 @@ HS_BLOCK
     CONFIGURED+=("clipboard keybind (macOS — Hammerspoon hotkey + terminal-notifier)")
 }
 
+# MacPorts path: skhd — a minimal hotkey daemon, not a full Lua automation
+# framework. Trade-off versus the Hammerspoon path above: skhd exposes no
+# IPC to query whether it already holds Accessibility trust, so this path
+# always surfaces the Accessibility reminder rather than detecting it
+# precisely. Idempotent: re-running skips present packages and replaces (not
+# duplicates) the managed skhd block.
+setup_clipboard_keybind_macos_skhd() {
+    # macOS forbids granting these programmatically — the user clicks once
+    # in GUI. We trigger the prompts; the rest is automatic.
+
+    # (a) Install the tools idempotently. skhd provides the global hotkey +
+    #     command execution; terminal-notifier gives clickable notifications;
+    #     pngpaste lets clip-image.sh grab PNGs natively.
+    if has skhd; then
+        SKIPPED+=("skhd (already installed)")
+    else
+        msg "Installing skhd (sudo port install skhd)..."
+        # `if` (not `&&`) so a failed/cancelled install can't abort the whole
+        # installer under `set -e` — we handle it via the check below.
+        if sudo port install skhd; then INSTALLED+=("skhd"); fi
+    fi
+    # skhd is the load-bearing dependency — the hotkey and command execution
+    # are pointless without it. If the install failed or was cancelled, bail
+    # before writing config so we don't report the keybind as configured when
+    # Ctrl+Shift+S can't possibly work.
+    if ! has skhd; then
+        warn "skhd not installed — skipping clipboard keybind setup."
+        warn "Re-run install.sh once 'sudo port install skhd' succeeds."
+        SKIPPED+=("clipboard keybind (macOS — skhd install failed)")
+        return
+    fi
+    local pkg
+    for pkg in terminal-notifier pngpaste; do
+        if has "$pkg"; then
+            SKIPPED+=("$pkg (already installed)")
+        else
+            msg "Installing $pkg..."
+            if sudo port install "$pkg"; then INSTALLED+=("$pkg"); fi
+        fi
+    done
+
+    # (b) Write the managed skhd block. We touch ONLY the text between the
+    #     markers — anyone's existing .skhdrc survives intact. $HOME is
+    #     resolved now (install.sh always runs as the target user), so the
+    #     written path is a plain literal — no runtime expansion to rely on.
+    local rc="$HOME/.skhdrc"
+    local mark_begin="# >>> boxa clipboard-image (managed) >>>"
+    local mark_end="# <<< boxa clipboard-image (managed) <<<"
+
+    local block_file
+    block_file=$(mktemp)
+    cat > "$block_file" <<SKHD_BLOCK
+$mark_begin
+ctrl + shift - s : $HOME/.local/share/boxa/scripts/clip-image-inject.sh
+$mark_end
+SKHD_BLOCK
+
+    local has_begin=false has_end=false
+    if [ -f "$rc" ]; then
+        # `--` so the markers (which start with `#`) aren't parsed as grep
+        # options by BSD grep — without it the check always fails and the
+        # managed block gets appended on every run.
+        grep -qF -- "$mark_begin" "$rc" && has_begin=true
+        grep -qF -- "$mark_end" "$rc" && has_end=true
+    fi
+
+    if $has_begin && $has_end; then
+        # Replace in place: on the begin marker, emit the fresh block (which
+        # carries its own markers) and skip the old body through end marker.
+        awk -v b="$mark_begin" -v e="$mark_end" -v bf="$block_file" '
+            $0 == b { skip=1; while ((getline line < bf) > 0) print line; close(bf); next }
+            $0 == e { skip=0; next }
+            !skip
+        ' "$rc" > "$rc.boxa-tmp" || { rm -f "$rc.boxa-tmp"; return; }
+        # Write through the existing file (not `mv`) so a symlinked .skhdrc
+        # — common with chezmoi/stow dotfiles — keeps its link and the
+        # target's permissions instead of being replaced by a plain file.
+        cat "$rc.boxa-tmp" > "$rc"
+        rm -f "$rc.boxa-tmp"
+        msg "Updated managed skhd block in $rc"
+    elif $has_begin || $has_end; then
+        # Exactly one marker — a half-written/hand-edited block. Appending
+        # would nest blocks and the awk replace would truncate everything
+        # after a lone begin marker, so refuse to touch the file and let the
+        # user reconcile it. Non-destructive: .skhdrc is left exactly as-is.
+        rm -f "$block_file"
+        warn "Malformed boxa block in $rc (only one marker present) — not touching it."
+        warn "Remove the stray '# >>> / <<< boxa clipboard-image' marker, then re-run install.sh."
+        SKIPPED+=("clipboard keybind (macOS — malformed skhd block)")
+        return
+    else
+        # Append, separated by a blank line if the file already has content.
+        [ -s "$rc" ] && printf '\n' >> "$rc"
+        cat "$block_file" >> "$rc"
+        msg "Added managed skhd block to $rc"
+    fi
+    rm -f "$block_file"
+
+    # (c) (Re)start the skhd service so it picks up the freshly-written
+    #     config. Unlike Hammerspoon, skhd exposes no IPC to query whether it
+    #     already holds Accessibility trust, so — unlike the Hammerspoon path
+    #     above — we can't tell whether the prompt below is actually needed.
+    #     We open the Accessibility pane unconditionally and phrase the note
+    #     as a thing to check, not an assertion that it's missing.
+    if pgrep -x skhd >/dev/null 2>&1; then
+        skhd --restart-service >/dev/null 2>&1 || true
+    else
+        skhd --start-service >/dev/null 2>&1 || true
+    fi
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null || true
+    ACTION_REQUIRED+=("Enable skhd in System Settings → Privacy & Security → Accessibility (if not already ticked).
+   Without it, Ctrl+Shift+S fails silently — the PNG is saved but the path is never typed.
+   If it's already ticked but doesn't work, toggle it off/on (or remove with − and re-add with +).")
+
+    # skhd's own docs: Secure Keyboard Entry must be OFF or it won't receive
+    # key events at all — a terminal-level setting boxa can't flip for you.
+    ACTION_REQUIRED+=("Turn off Secure Keyboard Entry in your terminal, or skhd won't see Ctrl+Shift+S.
+   Terminal.app: Terminal menu → Secure Keyboard Entry (uncheck it).
+   iTerm2: Preferences → General → Settings → Secure Keyboard Entry (uncheck it).")
+
+    # (d) Notifications via terminal-notifier. Fire one test notification to
+    #     trigger the macOS allow-notifications prompt (one grant covers all
+    #     terminals), then open the panel and explain the Alerts switch —
+    #     report persistence can't be set programmatically (ncprefs is
+    #     protected and the flag encoding shifts between macOS releases).
+    if has terminal-notifier; then
+        terminal-notifier -title "boxa" -message "Notifikace nastaveny ✓" >/dev/null 2>&1 || true
+        open "x-apple.systempreferences:com.apple.Notifications-Settings.extension" 2>/dev/null || true
+        ACTION_REQUIRED+=("In System Settings → Notifications, find terminal-notifier and switch its style
+   from Banners to Alerts, so harvest reports stay on screen until you acknowledge them.")
+    fi
+
+    CONFIGURED+=("clipboard keybind (macOS — skhd hotkey + terminal-notifier)")
+}
+
 setup_clipboard_keybind() {
     info "Clipboard image keybinding..."
 
     local inject="$BOXA_DIR/scripts/clip-image-inject.sh"
 
-    # macOS: a global hotkey via Hammerspoon works in *every* terminal
-    # (incl. Terminal.app, which can't run a command from a keybind). We
-    # install the tools, drop a managed block into init.lua, and trigger
-    # the two GUI permissions macOS won't grant programmatically.
+    # macOS: a global hotkey works in *every* terminal (incl. Terminal.app,
+    # which can't run a command from a keybind) — Hammerspoon on Homebrew,
+    # skhd on MacPorts (Hammerspoon has no MacPorts port). We install the
+    # tools, drop a managed config block, and trigger the GUI permissions
+    # macOS won't grant programmatically.
     if [ "$OS" = "macos" ]; then
         setup_clipboard_keybind_macos
         return

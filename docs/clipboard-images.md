@@ -127,16 +127,25 @@ WM level it works regardless of which terminal is focused.
 Copy an image, focus the agent prompt, press **Ctrl+Shift+S** — the path is typed
 in, ready to send.
 
-### macOS — iTerm2, WezTerm, or Hammerspoon
+### macOS — iTerm2, WezTerm, Hammerspoon, or skhd
 
 `boxa clip` works on macOS out of the box (`pngpaste` if installed, otherwise the
 built-in `osascript`). For the keybinding, **the recommended path is a global
-hotkey via [Hammerspoon](https://www.hammerspoon.org/)** — it works in *every*
-terminal at once (including Terminal.app, which can't run a command from a
-keybind), and `install.sh` sets it up for you. See the
-[Hammerspoon section below](#hammerspoon--terminalapp-recommended-set-up-by-installsh).
-The iTerm2 / WezTerm bindings below are alternatives if you'd rather keep the
-hotkey scoped to one terminal.
+hotkey** — it works in *every* terminal at once (including Terminal.app,
+which can't run a command from a keybind), and `install.sh` sets one up for
+you automatically, using whichever tool matches your package manager:
+
+- **Homebrew** → [Hammerspoon](https://www.hammerspoon.org/), a full Lua
+  automation framework (no MacPorts port exists for it).
+- **MacPorts** → [skhd](https://github.com/asmvik/skhd), a small, scriptless
+  hotkey daemon — what MacPorts installs get instead, since Hammerspoon isn't
+  packaged there.
+
+See the
+[Hammerspoon section](#hammerspoon--terminalapp-recommended-on-homebrew-set-up-by-installsh)
+or [skhd section](#skhd--terminalapp-recommended-on-macports-set-up-by-installsh)
+below. The iTerm2 / WezTerm bindings here are alternatives if you'd rather
+keep the hotkey scoped to one terminal, regardless of package manager.
 
 **iTerm2** — iTerm2 can run a *coprocess*
 from a key binding, and a coprocess's stdout is injected into the session as if
@@ -151,11 +160,11 @@ typed. Settings → Keys → Key Bindings → **+**:
 **WezTerm** — the [Lua callback above](#wezterm-single-keypress--recommended)
 works on macOS unchanged (the non-Windows branch calls the script directly).
 
-#### Hammerspoon / Terminal.app (recommended, set up by `install.sh`)
+#### Hammerspoon / Terminal.app (recommended on Homebrew, set up by `install.sh`)
 
 Terminal.app can't run a command from a keybinding, so the cross-terminal
 answer is a global hotkey via [Hammerspoon](https://www.hammerspoon.org/).
-`install.sh` automates the whole thing on macOS:
+On Homebrew, `install.sh` automates the whole thing:
 
 - `brew install --cask hammerspoon` + `brew install terminal-notifier pngpaste`
   (idempotent — skipped if already present).
@@ -198,9 +207,58 @@ hs.hotkey.bind({ "ctrl", "shift" }, "s", function()
 end)
 ```
 
-Keystroke injection (Hammerspoon, or `clip-image-inject.sh`'s macOS path via
-skhd) needs Accessibility permission — macOS prompts on first use. iTerm2's
-coprocess and the WezTerm callback don't.
+#### skhd / Terminal.app (recommended on MacPorts, set up by `install.sh`)
+
+Hammerspoon ships only as a Homebrew cask — there's no MacPorts port for it —
+so MacPorts installs get [skhd](https://github.com/asmvik/skhd) instead: a
+small hotkey daemon (no scripting layer, just `<keys> : <command>` lines)
+that MacPorts does package. On MacPorts, `install.sh` automates the whole
+thing:
+
+- `sudo port install skhd terminal-notifier pngpaste` (idempotent — skipped
+  if already present).
+- A **managed block** is written into `~/.skhdrc` between
+  `# >>> boxa clipboard-image (managed) >>>` markers. It only touches the
+  block between the markers, so a hand-written `.skhdrc` survives intact;
+  re-running replaces the block rather than duplicating it. The block binds
+  Ctrl+Shift+S to run `clip-image-inject.sh`, which grabs the clipboard image
+  and types its path into the focused window via `osascript`/System Events.
+- `install.sh` then starts (or restarts, to pick up the new config) skhd as a
+  launchd service: `skhd --start-service` / `skhd --restart-service`.
+
+Permissions and settings macOS won't let any script handle for you:
+
+1. **Accessibility** — System Settings → Privacy & Security → Accessibility →
+   enable **skhd**. Without it, Ctrl+Shift+S fails *silently*: the PNG is
+   saved but the path is never typed. Unlike Hammerspoon (above), skhd
+   exposes no way to ask it whether it already holds this permission, so
+   `install.sh` always opens the Accessibility pane and reminds you to check
+   — it's not necessarily missing just because the reminder appears again.
+   If skhd is already ticked but injection still doesn't work, toggle it
+   off/on (or remove it with **−** and re-add with **+**).
+2. **Secure Keyboard Entry must be off** — this is an skhd-specific
+   requirement (it can't receive key events at all while it's on), not
+   something `install.sh` can flip for you: Terminal.app → Terminal menu →
+   **Secure Keyboard Entry** (uncheck it); iTerm2 → Preferences → General →
+   Settings → **Secure Keyboard Entry** (uncheck it).
+3. **Notifications → Alerts** — for clickable harvest-log notifications
+   (`terminal-notifier`), find **terminal-notifier** in System Settings →
+   Notifications and switch its style from **Banners** to **Alerts** so
+   reports stay on screen until acknowledged. (Persistence can't be set
+   programmatically — `ncprefs` is protected and its flag encoding shifts
+   between macOS releases.)
+
+If you'd rather wire it by hand, the managed block is just one line in
+`~/.skhdrc`:
+
+```
+ctrl + shift - s : /absolute/path/to/boxa/scripts/clip-image-inject.sh
+```
+
+Keystroke injection (Hammerspoon's own call, skhd's command, or
+`clip-image-inject.sh`'s macOS `osascript`/System Events path) needs
+Accessibility permission — macOS prompts on first use. iTerm2's coprocess and
+the WezTerm callback don't.
 
 ### Any terminal (zero config)
 
@@ -211,3 +269,5 @@ then copy the printed path and paste it into your agent.
 
 - [Editors](editors.md) — attaching VS Code / Cursor to a box.
 - [Networking & port routing](networking.md) — dev URLs for reaching apps.
+- [ADR 0039](adr/0039-macports-support-and-per-pm-clipboard-tool.md) — why the
+  macOS keybind tool is Hammerspoon on Homebrew but skhd on MacPorts.
